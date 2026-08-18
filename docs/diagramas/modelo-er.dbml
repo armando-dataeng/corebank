@@ -1,0 +1,157 @@
+// CoreBank - Modelo Entidad-Relacion
+// dbdiagram.io DSL
+
+Table sucursal {
+  sucursal_id int [pk, increment]
+  codigo_sucursal varchar(10) [unique, not null]
+  nombre varchar(100) [not null]
+  direccion varchar(200) [not null]
+  telefono varchar(20)
+  fecha_apertura date [not null]
+  estado varchar(15) [not null, default: `'ACTIVA'`]
+}
+
+Table cliente {
+  cliente_id int [pk, increment]
+  tipo_cliente varchar(10) [not null]
+  documento_tipo varchar(20) [not null]
+  documento_numero varchar(20) [not null]
+  nombre varchar(150) [not null]
+  direccion varchar(200) [not null]
+  telefono varchar(20)
+  email varchar(100)
+  sucursal_origen_id int [not null, ref: > sucursal.sucursal_id]
+  estado varchar(10) [not null, default: `'ACTIVO'`]
+  fecha_registro date [not null]
+  fecha_inactivacion date
+}
+
+Table cliente_fisica {
+  cliente_id int [pk, ref: > cliente.cliente_id]
+  fecha_nacimiento date [not null]
+  sexo varchar(1)
+  estado_civil varchar(20)
+  nacionalidad varchar(50) [not null]
+}
+
+Table cliente_juridica {
+  cliente_id int [pk, ref: > cliente.cliente_id]
+  fecha_constitucion date [not null]
+  representante_legal varchar(150) [not null]
+  representante_documento varchar(20) [not null]
+  actividad_economica varchar(100)
+}
+
+Table rol {
+  rol_id int [pk, increment]
+  nombre varchar(20) [unique, not null]
+  descripcion varchar(200)
+  estado varchar(10) [not null, default: `'ACTIVO'`]
+}
+
+Table usuario {
+  usuario_id int [pk, increment]
+  username varchar(30) [unique, not null]
+  nombre_completo varchar(150) [not null]
+  email varchar(100) [not null]
+  rol_id int [not null, ref: > rol.rol_id]
+  sucursal_id int [ref: > sucursal.sucursal_id]
+  estado varchar(10) [not null, default: `'ACTIVO'`]
+  password_hash varchar(200) [not null]
+  fecha_creacion date [not null]
+  ultimo_acceso date
+}
+
+Table tipo_cuenta {
+  tipo_cuenta_id int [pk, increment]
+  nombre varchar(20) [unique, not null]
+  descripcion varchar(200)
+  permite_sobregiro varchar(1) [not null, default: `'N'`]
+  limite_sobregiro_default decimal(15,2) [not null, default: 0]
+  saldo_minimo_default decimal(15,2) [not null, default: 0]
+  estado varchar(10) [not null, default: `'ACTIVO'`]
+}
+
+Table cuenta {
+  cuenta_id int [pk, increment]
+  numero_cuenta varchar(14) [unique, not null]
+  cliente_id int [not null, ref: > cliente.cliente_id]
+  tipo_cuenta_id int [not null, ref: > tipo_cuenta.tipo_cuenta_id]
+  moneda char(3) [not null, default: `'DOP'`]
+  saldo_actual decimal(15,2) [not null, default: 0]
+  saldo_minimo decimal(15,2) [not null]
+  limite_sobregiro decimal(15,2) [not null, default: 0]
+  sucursal_id int [not null, ref: > sucursal.sucursal_id]
+  estado varchar(15) [not null, default: `'ACTIVA'`]
+  tipo_bloqueo varchar(10)
+  fecha_apertura date [not null]
+  fecha_cierre date
+  fecha_bloqueo date
+}
+
+Table transferencia {
+  transferencia_id int [pk, increment]
+  monto decimal(15,2) [not null]
+  cuenta_origen_id int [not null, ref: > cuenta.cuenta_id]
+  cuenta_destino_id int [not null, ref: > cuenta.cuenta_id]
+  fecha_solicitud date [not null]
+  fecha_ejecucion date
+  estado varchar(15) [not null]
+  motivo varchar(500)
+  usuario_solicita_id int [not null, ref: > usuario.usuario_id]
+  usuario_autoriza_id int [ref: > usuario.usuario_id]
+  sucursal_id int [not null, ref: > sucursal.sucursal_id]
+  transferencia_revierte_id int [ref: > transferencia.transferencia_id]
+  es_reversion varchar(1) [not null, default: `'N'`]
+}
+
+Table transaccion {
+  transaccion_id int [pk, increment]
+  cuenta_id int [not null, ref: > cuenta.cuenta_id]
+  tipo_transaccion varchar(30) [not null]
+  monto decimal(15,2) [not null]
+  saldo_anterior decimal(15,2) [not null]
+  saldo_posterior decimal(15,2) [not null]
+  fecha_hora timestamp [not null]
+  transferencia_id int [ref: > transferencia.transferencia_id]
+  transaccion_revierte_id int [ref: > transaccion.transaccion_id]
+  estado varchar(15) [not null]
+  origen varchar(20) [not null]
+  usuario_id int [ref: > usuario.usuario_id]
+  sucursal_id int [not null, ref: > sucursal.sucursal_id]
+  motivo varchar(500)
+}
+
+Table auditoria {
+  auditoria_id int [pk, increment]
+  capa varchar(15) [not null]
+  fecha_hora timestamp [not null]
+  usuario_id int [ref: > usuario.usuario_id]
+  tabla_afectada varchar(50)
+  operacion varchar(30) [not null]
+  registro_id int
+  valor_anterior text
+  valor_posterior text
+  contexto varchar(500)
+  ip_origen varchar(45)
+}
+
+Table log_sesiones_usuario {
+  log_sesion_id int [pk, increment]
+  usuario_id int [ref: > usuario.usuario_id]
+  username_intentado varchar(30) [not null]
+  fecha_hora timestamp [not null]
+  resultado varchar(15) [not null]
+  ip_origen varchar(45)
+  motivo_fallo varchar(200)
+}
+
+Table historial_bloqueo {
+  historial_bloqueo_id int [pk, increment]
+  cuenta_id int [not null, ref: > cuenta.cuenta_id]
+  tipo_evento varchar(15) [not null]
+  tipo_bloqueo varchar(10)
+  fecha_hora timestamp [not null]
+  usuario_id int [not null, ref: > usuario.usuario_id]
+  motivo varchar(500)
+}
