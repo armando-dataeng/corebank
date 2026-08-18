@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+.env
+.env.local
+
+# Logs
+*.log
+logs/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Oracle
+*.dmp
+*.log
+*.trace
+*.aud
+
+# PostgreSQL
+*.sql.gz
+
+# Power BI
+*.pbix.bak
+
+# Archivos temporales
+*.tmp
+*.bak
+*.temp
