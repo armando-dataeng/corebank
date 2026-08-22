@@ -108,12 +108,35 @@ cuentas en CoreBank. Es la entidad central del modelo.
 - Un cliente puede tener cero o una fila en `cliente_juridica`.
 - Un cliente puede tener cero o muchas cuentas (1:0..N con `cuenta`).
 
+**Especializacion: TOTAL y DISJUNTA**
+
+`CLIENTE` se especializa de forma **total y disjunta** en
+`CLIENTE_FISICA` y `CLIENTE_JURIDICA`.
+
+- Si `cliente.tipo_cliente = 'FISICA'`, debe existir exactamente una fila
+  correspondiente en `cliente_fisica` y no debe existir una fila en
+  `cliente_juridica` para el mismo `cliente_id`.
+- Si `cliente.tipo_cliente = 'JURIDICA'`, debe existir exactamente una fila
+  correspondiente en `cliente_juridica` y no debe existir una fila en
+  `cliente_fisica` para el mismo `cliente_id`.
+
+Por tanto, todo `CLIENTE` debe pertenecer exactamente a una de las dos
+especializaciones.
+
 **Reglas que enforcea:**
 
 - `cliente_id` nunca se reutiliza.
 - `(documento_tipo, documento_numero)` es unico en el sistema.
 - Un cliente inactivo no puede abrir cuentas nuevas ni realizar operaciones.
-- Reglas de especializacion documentadas en la nota relacional.
+- La especializacion de `CLIENTE` es TOTAL y DISJUNTA.
+- La correspondencia entre `tipo_cliente` y su tabla de especializacion debe
+  mantenerse consistente.
+
+**Nota relacional:**
+
+La especializacion TOTAL y DISJUNTA no puede garantizarse mediante una FK
+simple. El mecanismo de enforcement fisico se definira posteriormente en un
+ADR, evaluando trigger frente a logica de aplicacion.
 
 ### 3.3 cliente_fisica
 
@@ -271,7 +294,7 @@ documentara en el ADR correspondiente.
 - Un cliente puede tener cero o muchas cuentas (1:0..N).
 - Una cuenta tiene un tipo de producto (N:1 con `tipo_cuenta`).
 - Una cuenta fue aperturada en una sucursal (N:1 con `sucursal`).
-- Una cuenta tiene cero o dos transacciones (1:0..2 con `transaccion`).
+- Una cuenta puede tener cero o muchas transacciones (1:0..N con transaccion).
 - Una cuenta puede tener muchos eventos de bloqueo (1:N con `historial_bloqueo`).
 
 **Reglas que enforcea:**
@@ -365,25 +388,54 @@ documentara en el ADR correspondiente.
 - Una transferencia tiene cuenta destino (N:1 con `cuenta`).
 - Una transferencia puede revertir a otra (N:0..1 reflexiva).
 - Una transferencia fue solicitada por un usuario (N:1 con `usuario`).
-- Una transferencia puede haber sido autorizada (N:0..1 con `usuario`).
+- Una transferencia puede haber sido autorizada por un usuario (N:0..1 con `usuario`).
 - Una transferencia fue solicitada en una sucursal (N:1 con `sucursal`).
-- Una transferencia tiene cero o dos transacciones (1:0..2 con `transaccion`).
+- Una transferencia puede tener cero o dos transacciones (1:0..2 con `transaccion`).
 
 **Reglas que enforcea:**
 
 - `monto > 0`.
 - `cuenta_origen_id <> cuenta_destino_id`.
-- `estado = COMPLETADA` implica `fecha_ejecucion IS NOT NULL` y dos transacciones `APLICADA`.
-- `estado = FALLIDA` implica `fecha_ejecucion IS NULL` y cero transacciones.
-- `estado = REVERTIDA` implica una transferencia hija con `es_reversion = 'S'`.
+- Una transferencia `COMPLETADA` debe tener exactamente dos transacciones aplicadas:
+  una `TRANSFERENCIA_DEBITO` y una `TRANSFERENCIA_CREDITO`.
+- Las dos transacciones de una transferencia `COMPLETADA` deben compartir el mismo
+  `transferencia_id`.
+- Una transferencia `FALLIDA` no debe dejar transacciones aplicadas asociadas.
+- Una transferencia `REVERTIDA` debe estar asociada a una operación de reversión
+  que compense los movimientos de la transferencia original.
 - `es_reversion = 'S'` implica `transferencia_revierte_id IS NOT NULL`.
 - Una transferencia `COMPLETADA` solo puede ser revertida una vez.
 
+**Regla de atomicidad conceptual:**
+
+Una transferencia interna debe ejecutarse de forma atomica: el debito de la
+cuenta origen y el credito de la cuenta destino constituyen una unica operacion
+de negocio y deben confirmarse conjuntamente. Si alguna parte falla, ninguna
+de las dos transacciones debe quedar aplicada.
+
+**Interpretacion de la cardinalidad TRANSFERENCIA → TRANSACCION:**
+
+La relacion `1:0..2` significa:
+
+- `0` transacciones: la transferencia aun no ha producido movimientos contables,
+  por ejemplo, cuando queda `FALLIDA` antes de aplicar movimientos.
+- `2` transacciones: la transferencia fue ejecutada correctamente y contiene
+  exactamente un debito y un credito.
+- No debe existir una transferencia con una sola transaccion aplicada.
+
 **Ciclo de vida de una transferencia:**
 
-1. **Registro de la solicitud (fase 1):** se inserta la fila. Si la solicitud es invalida, queda en `FALLIDA`.
-2. **Ejecucion economica (fase 2):** si pasa pre-validaciones, se insertan las dos transacciones. Si falla, pasa a `FALLIDA`. Si completa, pasa a `COMPLETADA`.
-3. **Reversion (fase 3, opcional):** una transferencia `COMPLETADA` puede revertirse. Genera nueva transferencia con `es_reversion = 'S'`. La original pasa a `REVERTIDA`.
+1. **Registro de la solicitud:** se registra la transferencia y se realizan las
+   validaciones iniciales.
+2. **Ejecucion economica:** si las validaciones son satisfactorias, se aplican
+   de forma atomica el debito y el credito. Si ambos movimientos tienen exito,
+   la transferencia pasa a `COMPLETADA`.
+3. **Fallo:** si alguna parte de la ejecucion falla, la operacion completa debe
+   revertirse y la transferencia pasa a `FALLIDA` sin movimientos contables
+   aplicados.
+4. **Reversion:** una transferencia `COMPLETADA` puede ser revertida mediante
+   una nueva operacion de reversion que compense sus movimientos originales.
+   La transferencia original pasa a `REVERTIDA`.
 
 ## 6. Entidades de auditoria y seguridad
 
@@ -473,20 +525,24 @@ transferencia ├──> cuenta (origen) ├──> cuenta (destino) └──< 
 
 | Origen | Destino | Cardinalidad |
 |--------|---------|--------------|
-| sucursal | cliente | 1:N |
-| sucursal | cuenta | 1:N |
-| sucursal | usuario | 1:N |
-| cliente | cliente_fisica | 1:0..1 |
-| cliente | cliente_juridica | 1:0..1 |
-| cliente | cuenta | 1:0..N |
-| usuario | rol | N:1 |
-| usuario | sucursal | N:0..1 |
-| tipo_cuenta | cuenta | 1:N |
-| cuenta | transaccion | 1:N |
-| transferencia | transaccion | 1:0..2 |
-| usuario | auditoria | 1:N |
-| usuario | log_sesiones_usuario | 1:0..N |
-| cuenta | historial_bloqueo | 1:N |
+| SUCURSAL | CLIENTE | 1:N |
+| SUCURSAL | CUENTA | 1:N |
+| SUCURSAL | USUARIO | 0:N |
+| CLIENTE | CLIENTE_FISICA | 1:0..1* |
+| CLIENTE | CLIENTE_JURIDICA | 1:0..1* |
+| CLIENTE | CUENTA | 1:0..N |
+| ROL | USUARIO | 1:N |
+| USUARIO | SUCURSAL | 0..1 |
+| TIPO_CUENTA | CUENTA | 1:N |
+| CUENTA | TRANSACCION | **1:0..N** |
+| TRANSFERENCIA | TRANSACCION | **1:0..2** |
+| USUARIO | AUDITORIA | 1:N |
+| USUARIO | LOG_SESIONES_USUARIO | 1:0..N |
+| CUENTA | HISTORIAL_BLOQUEO | 1:0..N |
+
+\* `CLIENTE_FISICA` y `CLIENTE_JURIDICA` forman una especializacion
+**TOTAL y DISJUNTA** de `CLIENTE`. Por tanto, cada cliente debe pertenecer
+exactamente a una de las dos especializaciones.
 
 ## 9. Resumen final
 
